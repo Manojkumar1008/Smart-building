@@ -25,6 +25,15 @@ client = MongoClient("mongodb://localhost:27017/")
 db = client["smart_building"]
 collection = db["sensor_data"]
 
+
+@app.on_event("startup")
+def ensure_indexes():
+    # These indexes keep dashboard filter + sort queries responsive as history grows.
+    collection.create_index([("timestamp", -1)])
+    collection.create_index([("organization", 1), ("building", 1), ("timestamp", -1)])
+    collection.create_index([("meter_events.floor", 1), ("timestamp", -1)])
+    collection.create_index([("meter_events.machine", 1), ("timestamp", -1)])
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     return templates.TemplateResponse(request=request, name="dashboard.html", context={})

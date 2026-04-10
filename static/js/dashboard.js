@@ -6,7 +6,17 @@ let selectedWindow = "hourly";
 let selectedTrendView = "consumption";
 let combinationsPayload = null;
 const ENERGY_UNIT_COST_EUR = 0.15;
-const HISTORY_FETCH_LIMIT = 300000;
+const HISTORY_FETCH_LIMIT = 60000;
+const WINDOW_LIMITS = {
+  minute: 600,
+  hourly: 3000,
+  daily: 12000,
+  monthly: 30000,
+  yearly: 60000,
+};
+const RESPONSE_CACHE_TTL_MS = 10000;
+let activeLoadController = null;
+const responseCache = new Map();
 
 const selects = {
   organization: document.getElementById("organization"),
@@ -161,7 +171,7 @@ function readFilters() {
 }
 
 function limitForWindow(windowName) {
-  return HISTORY_FETCH_LIMIT;
+  return Math.min(WINDOW_LIMITS[windowName] || WINDOW_LIMITS.hourly, HISTORY_FETCH_LIMIT);
 }
 
 function toQuery(params) {
@@ -197,6 +207,9 @@ function isSummedMetric(metric) {
 function filterRecordsForWindow(records, windowName) {
   const latest = getLatestTimestamp(records);
   const filtered = records.filter((row) => {
+    if (typeof row._ts === "number") {
+      return Number.isFinite(row._ts);
+    }
     const ts = parseTimestamp(row.timestamp);
     return !Number.isNaN(ts.getTime());
   });
@@ -367,13 +380,12 @@ function updateCards(records) {
 
 function updateTrendChart(records) {
   const cfg = metricConfig[selectedMetric];
-  const windowData = filterRecordsForWindow(records, selectedWindow);
   let series = buildWindowSeries(records, selectedMetric, selectedWindow);
   const chartType = selectedWindow === "minute" ? "line" : "bar";
 
   if (trendChart) trendChart.destroy();
 
-  if (!windowData.records.length) {
+  if (!records.length) {
     document.getElementById("trendEmpty").style.display = "block";
     return;
   }
@@ -430,9 +442,8 @@ function updateTrendChart(records) {
 
 function updateFloorChart(records) {
   const cfg = metricConfig[selectedMetric];
-  const windowRecords = filterRecordsForWindow(records, selectedWindow).records;
   const map = {};
-  windowRecords.forEach((row) => {
+  records.forEach((row) => {
     const floors = (row.aggregations || {}).floors || {};
     Object.entries(floors).forEach(([path, values]) => {
       if (!map[path]) map[path] = { total: 0, count: 0 };
@@ -498,9 +509,8 @@ function updateFamilyChart(records) {
 
   const wantedType = selectedMetric === "energy_consumption" ? "energy" : "water";
   const familyMap = {};
-  const windowRecords = filterRecordsForWindow(records, selectedWindow).records;
 
-  windowRecords.forEach((row) => {
+  records.forEach((row) => {
     (row.meter_events || []).forEach((event) => {
       if (event.meter_type !== wantedType) return;
       const family = machineFamily(event.machine);
@@ -560,15 +570,13 @@ function updateMachineTable(records) {
   body.innerHTML = "";
   const costHeader = document.getElementById("costColumnHeader");
 
-  const windowRecords = filterRecordsForWindow(records, selectedWindow).records;
-
-  if (!windowRecords.length) {
+  if (!records.length) {
     body.innerHTML =
       '<tr><td colspan="6" class="empty">No records found.</td></tr>';
     return;
   }
 
-  const latest = windowRecords[windowRecords.length - 1];
+  const latest = records[records.length - 1];
   let rows = (latest.meter_events || []).slice();
   if (selectedMetric === "energy_consumption") {
     rows = rows.filter((row) => row.meter_type === "energy");
@@ -632,15 +640,47 @@ async function loadCombinations() {
 async function loadData() {
   updateMetricHeaders();
   const query = toQuery(readFilters());
-  const res = await fetch(`/data?${query}`);
-  const payload = await res.json();
-  const records = payload.data || [];
+  const now = Date.now();
+  const cached = responseCache.get(query);
 
-  updateCards(records);
-  updateTrendChart(records);
-  updateFloorChart(records);
-  updateFamilyChart(records);
-  updateMachineTable(records);
+  if (cached && now - cached.ts < RESPONSE_CACHE_TTL_MS) {
+    const windowData = filterRecordsForWindow(cached.records, selectedWindow);
+    updateCards(windowData.records);
+    updateTrendChart(windowData.records);
+    updateFloorChart(windowData.records);
+    updateFamilyChart(windowData.records);
+    updateMachineTable(windowData.records);
+    return;
+  }
+
+  if (activeLoadController) {
+    activeLoadController.abort();
+  }
+  activeLoadController = new AbortController();
+
+  try {
+    const res = await fetch(`/data?${query}`, { signal: activeLoadController.signal });
+    const payload = await res.json();
+    const records = (payload.data || []).map((row) => {
+      const parsed = parseTimestamp(row.timestamp);
+      return {
+        ...row,
+        _ts: Number.isNaN(parsed.getTime()) ? NaN : parsed.getTime(),
+      };
+    });
+    responseCache.set(query, { ts: now, records });
+
+    const windowData = filterRecordsForWindow(records, selectedWindow);
+    updateCards(windowData.records);
+    updateTrendChart(windowData.records);
+    updateFloorChart(windowData.records);
+    updateFamilyChart(windowData.records);
+    updateMachineTable(windowData.records);
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      console.error("Failed to load dashboard data", error);
+    }
+  }
 }
 
 function wireMetricSwitch() {
