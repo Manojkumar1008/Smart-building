@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pymongo
+paho-mqtt
+requests
+jinja2

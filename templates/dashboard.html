@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NCI Meter Analytics Dashboard</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+    />
+    <link rel="stylesheet" href="/static/css/dashboard.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div>
+          <h1>NCI Building Meter Dashboard</h1>
+          <p>
+            Overall, floor-wise, machine-wise, and family-wise analytics from
+            fog-processed data
+          </p>
+        </div>
+        <button class="btn" id="refreshBtn">Refresh</button>
+      </header>
+
+      <section class="panel">
+        <div class="control-row">
+          <div class="metric-switch" id="metricSwitch">
+            <button class="metric-btn active" data-metric="energy_consumption">
+              Energy
+            </button>
+            <button class="metric-btn" data-metric="water_consumption">
+              Water
+            </button>
+            <button class="metric-btn" data-metric="avg_co2">CO2</button>
+            <button class="metric-btn" data-metric="avg_temperature">
+              Temperature
+            </button>
+            <button class="metric-btn" data-metric="avg_humidity">
+              Humidity
+            </button>
+            <button class="metric-btn" data-metric="occupancy">
+              Occupancy
+            </button>
+          </div>
+          <div class="window-stack">
+            <div class="time-switch compact-switch" id="timeWindowSwitch">
+              <button class="time-btn" data-window="minute">MIN</button>
+              <button class="time-btn active" data-window="hourly">H</button>
+              <button class="time-btn" data-window="daily">D</button>
+              <button class="time-btn" data-window="monthly">M</button>
+              <button class="time-btn" data-window="yearly">Y</button>
+            </div>
+            <div class="window-label" id="windowLabel">Current Day</div>
+          </div>
+        </div>
+        <div class="filters">
+          <div class="field">
+            <label>Organization</label>
+            <select id="organization"></select>
+          </div>
+          <div class="field">
+            <label>Building</label>
+            <select id="building"></select>
+          </div>
+          <div class="field">
+            <label>Floor</label>
+            <select id="floor"></select>
+          </div>
+          <div class="field">
+            <label>Machine</label>
+            <select id="machine"></select>
+          </div>
+        </div>
+      </section>
+
+      <section class="cards">
+        <article class="card">
+          <div class="k" id="metricTotalLabel">Selected Metric Total</div>
+          <div class="v" id="metricTotal">0.00</div>
+          <div class="subvalue" id="metricTotalCost"></div>
+        </article>
+        <article class="card">
+          <div class="k" id="metricAvgLabel">Selected Metric Average</div>
+          <div class="v" id="metricAverage">0.00</div>
+          <div class="subvalue" id="metricAverageCost"></div>
+        </article>
+        <article class="card">
+          <div class="k">Floors in View</div>
+          <div class="v" id="floorsCount">0</div>
+        </article>
+        <article class="card">
+          <div class="k">Machines in View</div>
+          <div class="v" id="machinesCount">0</div>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <div class="trend-header">
+            <h3 id="trendTitle">Recent Trend (Last 40 points)</h3>
+            <div
+              id="trendViewSwitch"
+              class="trend-switch"
+              style="display: none"
+            >
+              <button class="view-btn active" data-view="consumption">
+                Consumption
+              </button>
+              <button class="view-btn" data-view="cost">Cost</button>
+            </div>
+          </div>
+          <canvas id="trendChart"></canvas>
+          <div class="empty" id="trendEmpty" style="display: none">
+            No data for selected combination.
+          </div>
+        </article>
+
+        <article class="panel">
+          <h3 id="floorTitle">Floor Aggregation</h3>
+          <canvas id="floorChart"></canvas>
+          <div class="empty" id="floorEmpty" style="display: none">
+            No floor data available.
+          </div>
+        </article>
+      </section>
+
+      <section class="panel" id="familyPanel">
+        <h3 id="familyTitle">Machine Family Totals (Energy vs Water)</h3>
+        <canvas id="familyChart"></canvas>
+        <div class="empty" id="familyEmpty" style="display: none">
+          No machine family data available.
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>Machine-wise Breakdown (Latest Snapshot)</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Path</th>
+                <th>Family</th>
+                <th>Type</th>
+                <th>Consumption</th>
+                <th id="costColumnHeader">Cost</th>
+                <th>Current Reading</th>
+              </tr>
+            </thead>
+            <tbody id="machineTable"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+  </body>
+</html>
