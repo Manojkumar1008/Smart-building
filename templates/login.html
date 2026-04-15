@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Edge Intelligence Portal | Login</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+    />
+    <link rel="stylesheet" href="/static/css/login.css" />
+  </head>
+  <body>
+    <main class="login-shell">
+      <section class="brand-panel">
+        <p class="eyebrow">NCI Cloud Computing</p>
+        <h1>Smart Building Command Center</h1>
+        <p class="summary">
+          Secure operational intelligence for building-wide meter analytics,
+          floor telemetry, and machine-level trend monitoring.
+        </p>
+        <ul class="highlights">
+          <li>Live KPI analytics and trend visibility</li>
+          <li>Floor and machine consumption intelligence</li>
+          <li>Secure session with controlled access</li>
+        </ul>
+      </section>
+
+      <section class="login-panel">
+        <h2>Sign In</h2>
+        <p class="hint">Use your dashboard credentials to continue.</p>
+        <form id="loginForm" class="login-form">
+          <label for="username">Username</label>
+          <input
+            id="username"
+            name="username"
+            autocomplete="username"
+            required
+          />
+
+          <label for="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+
+          <button type="submit" id="loginBtn">Enter Dashboard</button>
+          <p id="loginError" class="error" role="alert" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+
+    <script src="/static/js/login.js"></script>
+  </body>
+</html>

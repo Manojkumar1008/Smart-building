@@ -6,22 +6,51 @@
     <title>NCI Meter Analytics Dashboard</title>
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap"
     />
     <link rel="stylesheet" href="/static/css/dashboard.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
+    <nav class="navbar">
+      <div class="nav-brand">
+        <h2>NCI Energy Dashboard</h2>
+      </div>
+      <ul class="nav-menu">
+        <li><a href="#" class="nav-link active" data-section="dashboard">Dashboard</a></li>
+        <li><a href="#" class="nav-link" data-section="analytics">Analytics</a></li>
+        <li><a href="#" class="nav-link" data-section="reports">Reports</a></li>
+      </ul>
+      <div class="nav-actions">
+        <button class="btn-mode" id="modeToggle" title="Toggle Dark/Light Mode">🌙</button>
+        <button class="btn-settings" id="settingsBtn" title="Settings">⚙️</button>
+        <div class="user-dropdown">
+          <div class="user-chip" id="userProfile">
+            <span class="chip-label">Signed in as</span>
+            <strong>{{ username }}</strong>
+            <span class="dropdown-arrow">▼</span>
+          </div>
+          <div class="dropdown-menu" id="userMenu">
+            <a href="#" class="dropdown-item">Profile</a>
+            <a href="#" class="dropdown-item">Preferences</a>
+            <a href="#" class="dropdown-item" id="logoutLink">Logout</a>
+          </div>
+        </div>
+      </div>
+    </nav>
     <div class="page">
       <header class="hero">
-        <div>
-          <h1>NCI Building Meter Dashboard</h1>
+        <div class="hero-copy">
+          <h1>NCI Enterprise Energy Intelligence</h1>
           <p>
-            Overall, floor-wise, machine-wise, and family-wise analytics from
-            fog-processed data
+            Real-time building analytics powered by fog data processing,
+            optimized for fast decisions and executive insights.
           </p>
         </div>
-        <button class="btn" id="refreshBtn">Refresh</button>
+        <div class="hero-actions">
+          <button class="btn" id="refreshBtn">Refresh</button>
+          <button class="btn btn-danger" id="clearDataBtn" title="Clear all sensor data">Clear Data</button>
+        </div>
       </header>
 
       <section class="panel">
@@ -133,25 +162,42 @@
           No machine family data available.
         </div>
       </section>
+    </div>
 
-      <section class="panel">
-        <h3>Machine-wise Breakdown (Latest Snapshot)</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Path</th>
-                <th>Family</th>
-                <th>Type</th>
-                <th>Consumption</th>
-                <th id="costColumnHeader">Cost</th>
-                <th>Current Reading</th>
-              </tr>
-            </thead>
-            <tbody id="machineTable"></tbody>
-          </table>
+    <!-- Settings Modal -->
+    <div class="modal" id="settingsModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Settings</h3>
+          <button class="modal-close" id="modalClose">&times;</button>
         </div>
-      </section>
+        <div class="modal-body">
+          <div class="setting-group">
+            <label for="themeSelect">Theme</label>
+            <select id="themeSelect">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="auto">Auto</option>
+            </select>
+          </div>
+          <div class="setting-group">
+            <label for="refreshInterval">Auto Refresh Interval (seconds)</label>
+            <input type="number" id="refreshInterval" min="10" max="300" value="60">
+          </div>
+          <div class="setting-group">
+            <label for="chartType">Default Chart Type</label>
+            <select id="chartType">
+              <option value="line">Line</option>
+              <option value="bar">Bar</option>
+              <option value="area">Area</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="saveSettings">Save</button>
+          <button class="btn btn-ghost" id="cancelSettings">Cancel</button>
+        </div>
+      </div>
     </div>
 
     <script src="/static/js/dashboard.js"></script>

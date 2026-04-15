@@ -8,15 +8,24 @@ let combinationsPayload = null;
 const ENERGY_UNIT_COST_EUR = 0.15;
 const HISTORY_FETCH_LIMIT = 60000;
 const WINDOW_LIMITS = {
-  minute: 600,
-  hourly: 3000,
-  daily: 12000,
-  monthly: 30000,
-  yearly: 60000,
+  minute: 120,
+  hourly: 800,
+  daily: 1500,
+  monthly: 2500,
+  yearly: 3000,
 };
-const RESPONSE_CACHE_TTL_MS = 10000;
+const RESPONSE_CACHE_TTL_MS = 15000;
 let activeLoadController = null;
 const responseCache = new Map();
+
+async function authFetch(url, options = {}) {
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    window.location.href = "/login";
+    throw new Error("Session expired");
+  }
+  return response;
+}
 
 const selects = {
   organization: document.getElementById("organization"),
@@ -174,13 +183,16 @@ function limitForWindow(windowName) {
   return Math.min(WINDOW_LIMITS[windowName] || WINDOW_LIMITS.hourly, HISTORY_FETCH_LIMIT);
 }
 
-function toQuery(params) {
+function toQuery(params, includeMetric = false) {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
     if (v) q.set(k, v);
   });
   q.set("window", selectedWindow);
   q.set("limit", String(limitForWindow(selectedWindow)));
+  if (includeMetric) {
+    q.set("metric", selectedMetric);
+  }
   return q.toString();
 }
 
@@ -272,6 +284,15 @@ function buildWindowSeries(records, metric, windowName) {
       if (!bucket.count) return 0;
       return Number((summed ? bucket.total : bucket.total / bucket.count).toFixed(2));
     }),
+  };
+}
+
+function downsampleSeries(series, maxPoints = 60) {
+  if (series.labels.length <= maxPoints) return series;
+  const step = Math.ceil(series.labels.length / maxPoints);
+  return {
+    labels: series.labels.filter((_, index) => index % step === 0),
+    values: series.values.filter((_, index) => index % step === 0),
   };
 }
 
@@ -378,14 +399,15 @@ function updateCards(records) {
   }
 }
 
-function updateTrendChart(records) {
+function updateTrendChart(records, trendSeries = null) {
   const cfg = metricConfig[selectedMetric];
-  let series = buildWindowSeries(records, selectedMetric, selectedWindow);
+  let series = trendSeries || buildWindowSeries(records, selectedMetric, selectedWindow);
+  series = downsampleSeries(series, 60);
   const chartType = selectedWindow === "minute" ? "line" : "bar";
 
   if (trendChart) trendChart.destroy();
 
-  if (!records.length) {
+  if ((!records || !records.length) && !(trendSeries && trendSeries.labels?.length)) {
     document.getElementById("trendEmpty").style.display = "block";
     return;
   }
@@ -440,26 +462,34 @@ function updateTrendChart(records) {
   });
 }
 
-function updateFloorChart(records) {
+function updateFloorChart(records, floorSeries = null) {
   const cfg = metricConfig[selectedMetric];
-  const map = {};
-  records.forEach((row) => {
-    const floors = (row.aggregations || {}).floors || {};
-    Object.entries(floors).forEach(([path, values]) => {
-      if (!map[path]) map[path] = { total: 0, count: 0 };
-      map[path].total += Number(values[cfg.floorField] || 0);
-      map[path].count += 1;
-    });
-  });
+  let labels = [];
+  let values = [];
 
-  const labels = Object.keys(map).map((path) => path.split("/").slice(-1)[0]);
-  const values = Object.values(map).map((entry) =>
-    Number(
-      (isSummedMetric(selectedMetric)
-        ? entry.total
-        : entry.total / Math.max(entry.count, 1)).toFixed(2),
-    ),
-  );
+  if (floorSeries && floorSeries.labels?.length) {
+    labels = floorSeries.labels;
+    values = floorSeries.values;
+  } else {
+    const map = {};
+    records.forEach((row) => {
+      const floors = (row.aggregations || {}).floors || {};
+      Object.entries(floors).forEach(([path, valuesObj]) => {
+        if (!map[path]) map[path] = { total: 0, count: 0 };
+        map[path].total += Number(valuesObj[cfg.floorField] || 0);
+        map[path].count += 1;
+      });
+    });
+
+    labels = Object.keys(map).map((path) => path.split("/").slice(-1)[0]);
+    values = Object.values(map).map((entry) =>
+      Number(
+        (isSummedMetric(selectedMetric)
+          ? entry.total
+          : entry.total / Math.max(entry.count, 1)).toFixed(2),
+      ),
+    );
+  }
 
   if (floorChart) floorChart.destroy();
 
@@ -499,7 +529,7 @@ function updateFloorChart(records) {
   });
 }
 
-function updateFamilyChart(records) {
+function updateFamilyChart(records, familySeries = null) {
   const panel = document.getElementById("familyPanel");
   if (selectedMetric !== "energy_consumption" && selectedMetric !== "water_consumption") {
     panel.style.display = "none";
@@ -507,22 +537,29 @@ function updateFamilyChart(records) {
   }
   panel.style.display = "block";
 
-  const wantedType = selectedMetric === "energy_consumption" ? "energy" : "water";
-  const familyMap = {};
+  let labels = [];
+  let values = [];
+  if (familySeries && familySeries.labels?.length) {
+    labels = familySeries.labels;
+    values = familySeries.values;
+  } else {
+    const wantedType = selectedMetric === "energy_consumption" ? "energy" : "water";
+    const familyMap = {};
 
-  records.forEach((row) => {
-    (row.meter_events || []).forEach((event) => {
-      if (event.meter_type !== wantedType) return;
-      const family = machineFamily(event.machine);
-      if (!familyMap[family]) {
-        familyMap[family] = 0;
-      }
-      familyMap[family] += Number(event.consumption || 0);
+    records.forEach((row) => {
+      (row.meter_events || []).forEach((event) => {
+        if (event.meter_type !== wantedType) return;
+        const family = machineFamily(event.machine);
+        if (!familyMap[family]) {
+          familyMap[family] = 0;
+        }
+        familyMap[family] += Number(event.consumption || 0);
+      });
     });
-  });
 
-  const labels = Object.keys(familyMap).sort();
-  const values = labels.map((label) => Number(familyMap[label].toFixed(2)));
+    labels = Object.keys(familyMap).sort();
+    values = labels.map((label) => Number(familyMap[label].toFixed(2)));
+  }
 
   if (familyChart) familyChart.destroy();
 
@@ -620,7 +657,7 @@ function updateMachineTable(records) {
 }
 
 async function loadCombinations() {
-  const res = await fetch("/combinations");
+  const res = await authFetch("/combinations");
   combinationsPayload = await res.json();
 
   setOptions(
@@ -637,19 +674,25 @@ async function loadCombinations() {
   syncBuildingFloorMachineOptions();
 }
 
+async function loadTrendData() {
+  const query = toQuery(readFilters(), true);
+  const res = await authFetch(`/trend?${query}`);
+  return res.ok ? res.json() : { labels: [], values: [] };
+}
+
 async function loadData() {
   updateMetricHeaders();
   const query = toQuery(readFilters());
+  const trendQuery = toQuery(readFilters(), true);
   const now = Date.now();
   const cached = responseCache.get(query);
 
   if (cached && now - cached.ts < RESPONSE_CACHE_TTL_MS) {
     const windowData = filterRecordsForWindow(cached.records, selectedWindow);
     updateCards(windowData.records);
-    updateTrendChart(windowData.records);
-    updateFloorChart(windowData.records);
-    updateFamilyChart(windowData.records);
-    updateMachineTable(windowData.records);
+    updateTrendChart(windowData.records, cached.trend);
+    updateFloorChart(windowData.records, cached.floor);
+    updateFamilyChart(windowData.records, cached.family);
     return;
   }
 
@@ -659,8 +702,24 @@ async function loadData() {
   activeLoadController = new AbortController();
 
   try {
-    const res = await fetch(`/data?${query}`, { signal: activeLoadController.signal });
-    const payload = await res.json();
+    const [trendRes, floorRes, familyRes] = await Promise.all([
+      authFetch(`/trend?${trendQuery}`, { signal: activeLoadController.signal }),
+      authFetch(`/floor-aggregation?${trendQuery}`, { signal: activeLoadController.signal }),
+      authFetch(`/family-aggregation?${trendQuery}`, { signal: activeLoadController.signal }),
+    ]);
+
+    const [trendPayload, floorPayload, familyPayload] = await Promise.all([
+      trendRes.json(),
+      floorRes.json(),
+      familyRes.json(),
+    ]);
+
+    updateTrendChart([], trendPayload);
+    updateFloorChart([], floorPayload);
+    updateFamilyChart([], familyPayload);
+
+    const dataRes = await authFetch(`/data?${query}`, { signal: activeLoadController.signal });
+    const payload = await dataRes.json();
     const records = (payload.data || []).map((row) => {
       const parsed = parseTimestamp(row.timestamp);
       return {
@@ -668,14 +727,19 @@ async function loadData() {
         _ts: Number.isNaN(parsed.getTime()) ? NaN : parsed.getTime(),
       };
     });
-    responseCache.set(query, { ts: now, records });
+    responseCache.set(query, {
+      ts: now,
+      records,
+      trend: trendPayload,
+      floor: floorPayload,
+      family: familyPayload,
+    });
 
     const windowData = filterRecordsForWindow(records, selectedWindow);
     updateCards(windowData.records);
-    updateTrendChart(windowData.records);
-    updateFloorChart(windowData.records);
-    updateFamilyChart(windowData.records);
-    updateMachineTable(windowData.records);
+    updateTrendChart(windowData.records, trendPayload);
+    updateFloorChart(windowData.records, floorPayload);
+    updateFamilyChart(windowData.records, familyPayload);
   } catch (error) {
     if (error.name !== "AbortError") {
       console.error("Failed to load dashboard data", error);
@@ -752,12 +816,150 @@ function wireDependentFilters() {
   selects.machine.addEventListener("change", loadData);
 }
 
+async function updateCollectionStats() {
+  try {
+    const res = await authFetch("/api/stats");
+    const stats = await res.json();
+    document.getElementById("docCount").textContent = stats.total_documents || "0";
+  } catch (error) {
+    console.error("Failed to fetch collection stats", error);
+  }
+}
+
+async function clearAllData() {
+  const confirmed = confirm(
+    "Are you sure you want to clear ALL sensor data? This cannot be undone."
+  );
+  if (!confirmed) return;
+
+  try {
+    const res = await authFetch("/api/clear-data", { method: "DELETE" });
+    const result = await res.json();
+    alert(`✓ ${result.message}`);
+    responseCache.clear();
+    await updateCollectionStats();
+    await loadCombinations();
+    await loadData();
+  } catch (error) {
+    console.error("Failed to clear data", error);
+    alert("✗ Failed to clear data");
+  }
+}
+
+function wireLogout() {
+  const logoutLink = document.getElementById("logoutLink");
+  if (!logoutLink) return;
+
+  logoutLink.addEventListener("click", async (e) => {
+    e.preventDefault();
+    logoutLink.textContent = "Signing out...";
+
+    try {
+      await fetch("/logout", { method: "POST" });
+    } catch (error) {
+      console.error("Logout failed", error);
+    } finally {
+      window.location.href = "/login";
+    }
+  });
+}
+
+function wireUserDropdown() {
+  const userProfile = document.getElementById("userProfile");
+  const userMenu = document.getElementById("userMenu");
+  if (!userProfile || !userMenu) return;
+
+  userProfile.addEventListener("click", () => {
+    userMenu.classList.toggle("show");
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!userProfile.contains(e.target)) {
+      userMenu.classList.remove("show");
+    }
+  });
+}
+
+function wireSettings() {
+  const settingsBtn = document.getElementById("settingsBtn");
+  const modal = document.getElementById("settingsModal");
+  const modalClose = document.getElementById("modalClose");
+  const saveSettings = document.getElementById("saveSettings");
+  const cancelSettings = document.getElementById("cancelSettings");
+
+  if (!settingsBtn || !modal) return;
+
+  settingsBtn.addEventListener("click", () => {
+    modal.classList.add("show");
+  });
+
+  modalClose.addEventListener("click", () => {
+    modal.classList.remove("show");
+  });
+
+  cancelSettings.addEventListener("click", () => {
+    modal.classList.remove("show");
+  });
+
+  saveSettings.addEventListener("click", () => {
+    // Save settings logic here
+    const theme = document.getElementById("themeSelect").value;
+    const refreshInterval = document.getElementById("refreshInterval").value;
+    const chartType = document.getElementById("chartType").value;
+
+    localStorage.setItem("dashboardTheme", theme);
+    localStorage.setItem("refreshInterval", refreshInterval);
+    localStorage.setItem("chartType", chartType);
+
+    modal.classList.remove("show");
+    // Apply theme
+    applyTheme(theme);
+  });
+
+  // Load saved settings
+  const savedTheme = localStorage.getItem("dashboardTheme") || "dark";
+  const savedInterval = localStorage.getItem("refreshInterval") || "60";
+  const savedChartType = localStorage.getItem("chartType") || "line";
+
+  document.getElementById("themeSelect").value = savedTheme;
+  document.getElementById("refreshInterval").value = savedInterval;
+  document.getElementById("chartType").value = savedChartType;
+}
+
+function wireModeToggle() {
+  const modeToggle = document.getElementById("modeToggle");
+  if (!modeToggle) return;
+
+  modeToggle.addEventListener("click", () => {
+    const currentTheme = localStorage.getItem("dashboardTheme") || "dark";
+    const newTheme = currentTheme === "dark" ? "light" : "dark";
+    localStorage.setItem("dashboardTheme", newTheme);
+    applyTheme(newTheme);
+  });
+}
+
+function applyTheme(theme) {
+  const body = document.body;
+  if (theme === "light") {
+    body.classList.add("light-mode");
+    document.getElementById("modeToggle").textContent = "☀️";
+  } else {
+    body.classList.remove("light-mode");
+    document.getElementById("modeToggle").textContent = "🌙";
+  }
+}
+
 async function init() {
   wireMetricSwitch();
   wireTimeWindowSwitch();
   wireTrendViewSwitch();
   wireDependentFilters();
+  wireLogout();
+  wireUserDropdown();
+  wireSettings();
+  wireModeToggle();
   document.getElementById("refreshBtn").addEventListener("click", loadData);
+  document.getElementById("clearDataBtn").addEventListener("click", clearAllData);
   await loadCombinations();
   await loadData();
   setInterval(loadData, 12000);
