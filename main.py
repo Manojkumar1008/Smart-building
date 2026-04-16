@@ -1,4 +1,6 @@
 import os
+import hashlib
+import secrets
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -197,12 +199,31 @@ def require_authenticated_user(request: Request) -> str:
 
 
 @app.on_event("startup")
-def ensure_indexes():
+def startup_tasks():
     # These indexes keep dashboard filter + sort queries responsive as history grows.
     collection.create_index([("timestamp", -1)])
     collection.create_index([("organization", 1), ("building", 1), ("timestamp", -1)])
     collection.create_index([("meter_events.floor", 1), ("timestamp", -1)])
     collection.create_index([("meter_events.machine", 1), ("timestamp", -1)])
+    
+    # Ensure a default admin user exists
+    users = db["users"]
+    users.create_index([("username", 1)], unique=True)
+    if users.count_documents({}) == 0:
+        salt, key = hash_password(AUTH_PASSWORD)
+        users.insert_one({
+            "username": AUTH_USERNAME,
+            "password_hash": key,
+            "salt": salt,
+            "role": "admin",
+            "created_at": datetime.now(APP_TIMEZONE).isoformat()
+        })
+
+def hash_password(password: str, salt: bytes = None):
+    if salt is None:
+        salt = secrets.token_bytes(16)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return salt, key
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -219,16 +240,55 @@ async def login(request: Request):
     username = str(payload.get("username", "")).strip()
     password = str(payload.get("password", ""))
 
-    if username == AUTH_USERNAME and password == AUTH_PASSWORD:
-        request.session.clear()
-        request.session["user"] = username
-        request.session["signed_in_at"] = datetime.now(APP_TIMEZONE).isoformat()
-        return {"status": "ok", "username": username}
+    user_doc = db["users"].find_one({"username": username})
+    if user_doc and "salt" in user_doc and "password_hash" in user_doc:
+        salt = user_doc["salt"]
+        stored_key = user_doc["password_hash"]
+        _, key = hash_password(password, salt)
+        if secrets.compare_digest(key, stored_key):
+            request.session.clear()
+            request.session["user"] = username
+            request.session["signed_in_at"] = datetime.now(APP_TIMEZONE).isoformat()
+            return {"status": "ok", "username": username}
 
     return JSONResponse(
         status_code=401,
         content={"status": "error", "message": "Invalid username or password"},
     )
+
+
+@app.post("/api/register")
+async def register(request: Request):
+    payload = await request.json()
+    username = str(payload.get("username", "")).strip()
+    password = str(payload.get("password", ""))
+
+    if not username or not password:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "Username and password required."},
+        )
+
+    users = db["users"]
+    if users.count_documents({"username": username}) > 0:
+        return JSONResponse(
+            status_code=409,
+            content={"status": "error", "message": "Username already exists."},
+        )
+
+    salt, key = hash_password(password)
+    users.insert_one({
+        "username": username,
+        "password_hash": key,
+        "salt": salt,
+        "role": "user",
+        "created_at": datetime.now(APP_TIMEZONE).isoformat()
+    })
+
+    request.session.clear()
+    request.session["user"] = username
+    request.session["signed_in_at"] = datetime.now(APP_TIMEZONE).isoformat()
+    return {"status": "ok", "username": username}
 
 
 @app.post("/logout")

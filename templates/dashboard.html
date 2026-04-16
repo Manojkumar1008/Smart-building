@@ -4,26 +4,23 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>NCI Meter Analytics Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap"
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap"
     />
     <link rel="stylesheet" href="/static/css/dashboard.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
   </head>
   <body>
     <nav class="navbar">
       <div class="nav-brand">
-        <h2>NCI Energy Dashboard</h2>
+        <h2>NCI Dashboard</h2>
       </div>
-      <ul class="nav-menu">
-        <li><a href="#" class="nav-link active" data-section="dashboard">Dashboard</a></li>
-        <li><a href="#" class="nav-link" data-section="analytics">Analytics</a></li>
-        <li><a href="#" class="nav-link" data-section="reports">Reports</a></li>
-      </ul>
       <div class="nav-actions">
-        <button class="btn-mode" id="modeToggle" title="Toggle Dark/Light Mode">🌙</button>
-        <button class="btn-settings" id="settingsBtn" title="Settings">⚙️</button>
         <div class="user-dropdown">
           <div class="user-chip" id="userProfile">
             <span class="chip-label">Signed in as</span>
@@ -31,28 +28,22 @@
             <span class="dropdown-arrow">▼</span>
           </div>
           <div class="dropdown-menu" id="userMenu">
-            <a href="#" class="dropdown-item">Profile</a>
-            <a href="#" class="dropdown-item">Preferences</a>
+            <a href="#" class="dropdown-item nav-link active" data-section="dashboard">Dashboard</a>
+            <a href="#" class="dropdown-item nav-link" data-section="reports">Reports</a>
+            <div style="border-top: 1px solid var(--line); margin: 4px 0;"></div>
+            <a href="#" class="dropdown-item" id="modeToggle">Toggle Theme</a>
+            <a href="#" class="dropdown-item" id="settingsBtn">Settings</a>
+            <a href="#" class="dropdown-item" id="refreshBtn">Refresh Data</a>
+            <a href="#" class="dropdown-item" id="clearDataBtn" style="color: var(--danger);">Clear Data</a>
+            <div style="border-top: 1px solid var(--line); margin: 4px 0;"></div>
             <a href="#" class="dropdown-item" id="logoutLink">Logout</a>
           </div>
         </div>
       </div>
     </nav>
-    <div class="page">
-      <header class="hero">
-        <div class="hero-copy">
-          <h1>NCI Enterprise Energy Intelligence</h1>
-          <p>
-            Real-time building analytics powered by fog data processing,
-            optimized for fast decisions and executive insights.
-          </p>
-        </div>
-        <div class="hero-actions">
-          <button class="btn" id="refreshBtn">Refresh</button>
-          <button class="btn btn-danger" id="clearDataBtn" title="Clear all sensor data">Clear Data</button>
-        </div>
-      </header>
-
+    
+    <div id="view-dashboard" class="content-view active">
+      <div class="page">
       <section class="panel">
         <div class="control-row">
           <div class="metric-switch" id="metricSwitch">
@@ -76,12 +67,12 @@
           <div class="window-stack">
             <div class="time-switch compact-switch" id="timeWindowSwitch">
               <button class="time-btn" data-window="minute">MIN</button>
-              <button class="time-btn active" data-window="hourly">H</button>
+              <button class="time-btn" data-window="hourly">H</button>
               <button class="time-btn" data-window="daily">D</button>
               <button class="time-btn" data-window="monthly">M</button>
-              <button class="time-btn" data-window="yearly">Y</button>
+              <button class="time-btn active" data-window="yearly">Y</button>
             </div>
-            <div class="window-label" id="windowLabel">Current Day</div>
+            <div class="window-label" id="windowLabel">Current Year</div>
           </div>
         </div>
         <div class="filters">
@@ -127,12 +118,12 @@
 
       <section class="grid">
         <article class="panel">
-          <div class="trend-header">
-            <h3 id="trendTitle">Recent Trend (Last 40 points)</h3>
+          <div class="trend-header" style="display: flex; justify-content: space-between; align-items: center; min-height: 40px; margin-bottom: 12px;">
+            <h3 id="trendTitle" style="margin: 0;">Recent Trend (Last 40 points)</h3>
             <div
               id="trendViewSwitch"
               class="trend-switch"
-              style="display: none"
+              style="display: flex;"
             >
               <button class="view-btn active" data-view="consumption">
                 Consumption
@@ -147,7 +138,9 @@
         </article>
 
         <article class="panel">
-          <h3 id="floorTitle">Floor Aggregation</h3>
+          <div class="trend-header" style="display: flex; align-items: center; min-height: 40px; margin-bottom: 12px;">
+            <h3 id="floorTitle" style="margin: 0;">Floor Aggregation</h3>
+          </div>
           <canvas id="floorChart"></canvas>
           <div class="empty" id="floorEmpty" style="display: none">
             No floor data available.
@@ -162,6 +155,44 @@
           No machine family data available.
         </div>
       </section>
+    </div>
+    </div> <!-- /view-dashboard -->
+
+
+
+    <!-- REPORTS VIEW -->
+    <div id="view-reports" class="content-view" style="display: none;">
+      <div class="page">
+        <header class="hero">
+          <div class="hero-actions" style="margin-left: auto; display: flex; gap: 12px;">
+            <button class="btn" id="exportCsvBtn" title="Download Raw CSV" style="background: rgba(0,240,255, 0.1); color: var(--accent); border: 1px solid var(--accent);">Export CSV</button>
+            <button class="btn" id="exportPdfBtn" title="Download PDF Report" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid var(--danger);">Export PDF</button>
+          </div>
+        </header>
+
+        <section class="panel">
+          <h3 style="margin-bottom: 24px;">Data Incident Manifest</h3>
+          <div class="table-responsive">
+            <table class="data-table" id="reportsTable">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Location (Org/Bldg/Floor)</th>
+                  <th>Machine Asset</th>
+                  <th>Meter Core</th>
+                  <th>Recorded Value</th>
+                </tr>
+              </thead>
+              <tbody id="reportsTableBody">
+                <!-- Javascript will inject data logs here -->
+              </tbody>
+            </table>
+          </div>
+          <div class="empty" id="reportsEmpty" style="display: none; padding: 48px;">
+            No record instances logged.
+          </div>
+        </section>
+      </div>
     </div>
 
     <!-- Settings Modal -->

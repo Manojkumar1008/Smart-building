@@ -1,8 +1,9 @@
+let currentRecords = [];
 let trendChart = null;
 let floorChart = null;
 let familyChart = null;
 let selectedMetric = "energy_consumption";
-let selectedWindow = "hourly";
+let selectedWindow = "yearly";
 let selectedTrendView = "consumption";
 let combinationsPayload = null;
 const ENERGY_UNIT_COST_EUR = 0.15;
@@ -38,43 +39,43 @@ const metricConfig = {
   energy_consumption: {
     label: "Energy",
     unit: "kWh",
-    color: "#ff7a45",
-    fill: "rgba(255,122,69,0.25)",
+    color: "#f59e0b",
+    fill: "rgba(245, 158, 11, 0.25)",
     floorField: "energy_consumption",
   },
   water_consumption: {
     label: "Water",
     unit: "L",
-    color: "#28c9bf",
-    fill: "rgba(40,201,191,0.25)",
+    color: "#3b82f6",
+    fill: "rgba(59, 130, 246, 0.25)",
     floorField: "water_consumption",
   },
   avg_co2: {
     label: "CO2",
     unit: "ppm",
-    color: "#f5c542",
-    fill: "rgba(245,197,66,0.25)",
+    color: "#8b5cf6",
+    fill: "rgba(139, 92, 246, 0.25)",
     floorField: "avg_co2",
   },
   avg_temperature: {
     label: "Temperature",
     unit: "C",
-    color: "#ff9f5c",
-    fill: "rgba(255,159,92,0.25)",
+    color: "#ef4444",
+    fill: "rgba(239, 68, 68, 0.25)",
     floorField: "avg_temperature",
   },
   avg_humidity: {
     label: "Humidity",
     unit: "%",
-    color: "#6cb7ff",
-    fill: "rgba(108,183,255,0.25)",
+    color: "#00f0ff",
+    fill: "rgba(0, 240, 255, 0.25)",
     floorField: "avg_humidity",
   },
   occupancy: {
     label: "Occupancy",
     unit: "state",
-    color: "#9de27c",
-    fill: "rgba(157,226,124,0.25)",
+    color: "#10b981",
+    fill: "rgba(16, 185, 129, 0.25)",
     floorField: "occupancy",
   },
 };
@@ -399,15 +400,24 @@ function updateCards(records) {
   }
 }
 
+function getThemeStyles() {
+  const isLight = document.body.classList.contains("light-mode");
+  return {
+    text: isLight ? "#1e293b" : "#f8fafc",
+    tick: isLight ? "#64748b" : "#94a3b8",
+    grid: isLight ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.05)"
+  };
+}
+
 function updateTrendChart(records, trendSeries = null) {
   const cfg = metricConfig[selectedMetric];
   let series = trendSeries || buildWindowSeries(records, selectedMetric, selectedWindow);
   series = downsampleSeries(series, 60);
   const chartType = selectedWindow === "minute" ? "line" : "bar";
 
-  if (trendChart) trendChart.destroy();
 
-  if ((!records || !records.length) && !(trendSeries && trendSeries.labels?.length)) {
+  if (!series.labels.length && !series.values.length) {
+    if (trendChart) { trendChart.destroy(); trendChart = null; }
     document.getElementById("trendEmpty").style.display = "block";
     return;
   }
@@ -428,38 +438,59 @@ function updateTrendChart(records, trendSeries = null) {
     chartFill = "rgba(34, 209, 198, 0.25)";
   }
 
-  trendChart = new Chart(document.getElementById("trendChart"), {
-    type: chartType,
-    data: {
-      labels: series.labels,
-      datasets: [
-        {
-          label: `${chartLabel} (${chartUnit})`,
-          data: chartValues,
-          borderColor: chartColor,
-          backgroundColor: chartFill,
-          tension: chartType === "line" ? 0.25 : 0,
-          borderWidth: 2,
-          fill: chartType === "line",
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: "#eaf5ff" } } },
-      scales: {
-        x: {
-          ticks: { color: "#9cb7ca", maxTicksLimit: 8 },
-          grid: { color: "rgba(170, 218, 255, 0.12)" },
-        },
-        y: {
-          beginAtZero: true,
-          ticks: { color: "#9cb7ca" },
-          grid: { color: "rgba(170, 218, 255, 0.12)" },
+  if (trendChart && trendChart.config.type !== chartType) {
+    trendChart.destroy();
+    trendChart = null;
+  }
+
+  if (trendChart) {
+    trendChart.data.labels = series.labels;
+    trendChart.data.datasets[0].data = chartValues;
+    trendChart.data.datasets[0].label = `${chartLabel} (${chartUnit})`;
+    trendChart.data.datasets[0].borderColor = chartColor;
+    trendChart.data.datasets[0].backgroundColor = chartType === "line" ? chartFill : chartColor;
+    trendChart.options.plugins.legend.labels.color = getThemeStyles().text;
+    trendChart.options.scales.x.ticks.color = getThemeStyles().tick;
+    trendChart.options.scales.y.ticks.color = getThemeStyles().tick;
+    trendChart.options.scales.x.grid.color = getThemeStyles().grid;
+    trendChart.options.scales.y.grid.color = getThemeStyles().grid;
+    trendChart.update();
+  } else {
+    trendChart = new Chart(document.getElementById("trendChart"), {
+      type: chartType,
+      data: {
+        labels: series.labels,
+        datasets: [
+          {
+            label: `${chartLabel} (${chartUnit})`,
+            data: chartValues,
+            borderColor: chartColor,
+            backgroundColor: chartType === "line" ? chartFill : chartColor,
+            tension: chartType === "line" ? 0.25 : 0,
+            borderWidth: chartType === "line" ? 2 : 0,
+            fill: chartType === "line",
+            barPercentage: 0.8,
+            categoryPercentage: 0.9
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: getThemeStyles().text } } },
+        scales: {
+          x: {
+            ticks: { color: getThemeStyles().tick, maxTicksLimit: 8 },
+            grid: { color: getThemeStyles().grid },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: getThemeStyles().tick },
+            grid: { color: getThemeStyles().grid },
+          },
         },
       },
-    },
-  });
+    });
+  }
 }
 
 function updateFloorChart(records, floorSeries = null) {
@@ -491,42 +522,55 @@ function updateFloorChart(records, floorSeries = null) {
     );
   }
 
-  if (floorChart) floorChart.destroy();
-
   if (!labels.length) {
+    if (floorChart) { floorChart.destroy(); floorChart = null; }
     document.getElementById("floorEmpty").style.display = "block";
     return;
   }
   document.getElementById("floorEmpty").style.display = "none";
 
-  floorChart = new Chart(document.getElementById("floorChart"), {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: `${cfg.label} (${cfg.unit})`,
-          data: values,
-          backgroundColor: cfg.color,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: "#eaf5ff" } } },
-      scales: {
-        x: {
-          ticks: { color: "#9cb7ca" },
-          grid: { color: "rgba(170, 218, 255, 0.12)" },
-        },
-        y: {
-          beginAtZero: true,
-          ticks: { color: "#9cb7ca" },
-          grid: { color: "rgba(170, 218, 255, 0.12)" },
+  if (floorChart) {
+    floorChart.data.labels = labels;
+    floorChart.data.datasets[0].data = values;
+    floorChart.data.datasets[0].label = `${cfg.label} (${cfg.unit})`;
+    floorChart.data.datasets[0].backgroundColor = cfg.color;
+    floorChart.options.plugins.legend.labels.color = getThemeStyles().text;
+    floorChart.options.scales.x.ticks.color = getThemeStyles().tick;
+    floorChart.options.scales.y.ticks.color = getThemeStyles().tick;
+    floorChart.options.scales.x.grid.color = getThemeStyles().grid;
+    floorChart.options.scales.y.grid.color = getThemeStyles().grid;
+    floorChart.update();
+  } else {
+    floorChart = new Chart(document.getElementById("floorChart"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: `${cfg.label} (${cfg.unit})`,
+            data: values,
+            backgroundColor: cfg.color,
+            maxBarThickness: 60
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: getThemeStyles().text } } },
+        scales: {
+          x: {
+            ticks: { color: getThemeStyles().tick },
+            grid: { color: getThemeStyles().grid },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: getThemeStyles().tick },
+            grid: { color: getThemeStyles().grid },
+          },
         },
       },
-    },
-  });
+    });
+  }
 }
 
 function updateFamilyChart(records, familySeries = null) {
@@ -561,9 +605,8 @@ function updateFamilyChart(records, familySeries = null) {
     values = labels.map((label) => Number(familyMap[label].toFixed(2)));
   }
 
-  if (familyChart) familyChart.destroy();
-
   if (!labels.length) {
+    if (familyChart) { familyChart.destroy(); familyChart = null; }
     document.getElementById("familyEmpty").style.display = "block";
     return;
   }
@@ -572,34 +615,48 @@ function updateFamilyChart(records, familySeries = null) {
   const cfg = metricConfig[selectedMetric];
   document.getElementById("familyTitle").textContent = `${windowConfig[selectedWindow].label} ${cfg.label} by Machine Family`;
 
-  familyChart = new Chart(document.getElementById("familyChart"), {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: `${cfg.label} Family Total (${cfg.unit})`,
-          data: values,
-          backgroundColor: cfg.color,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: "#eaf5ff" } } },
-      scales: {
-        x: {
-          ticks: { color: "#9cb7ca", maxRotation: 35, minRotation: 0 },
-          grid: { color: "rgba(170, 218, 255, 0.12)" },
-        },
-        y: {
-          beginAtZero: true,
-          ticks: { color: "#9cb7ca" },
-          grid: { color: "rgba(170, 218, 255, 0.12)" },
+  if (familyChart) {
+    familyChart.data.labels = labels;
+    familyChart.data.datasets[0].data = values;
+    familyChart.data.datasets[0].label = `${cfg.label} Family Total (${cfg.unit})`;
+    familyChart.data.datasets[0].backgroundColor = cfg.color;
+    familyChart.options.plugins.legend.labels.color = getThemeStyles().text;
+    familyChart.options.scales.x.ticks.color = getThemeStyles().tick;
+    familyChart.options.scales.y.ticks.color = getThemeStyles().tick;
+    familyChart.options.scales.x.grid.color = getThemeStyles().grid;
+    familyChart.options.scales.y.grid.color = getThemeStyles().grid;
+    familyChart.update();
+  } else {
+    familyChart = new Chart(document.getElementById("familyChart"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: `${cfg.label} Family Total (${cfg.unit})`,
+            data: values,
+            backgroundColor: cfg.color,
+            maxBarThickness: 60
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: getThemeStyles().text } } },
+        scales: {
+          x: {
+            ticks: { color: getThemeStyles().tick, maxRotation: 35, minRotation: 0 },
+            grid: { color: getThemeStyles().grid },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: getThemeStyles().tick },
+            grid: { color: getThemeStyles().grid },
+          },
         },
       },
-    },
-  });
+    });
+  }
 }
 
 function updateMachineTable(records) {
@@ -682,17 +739,24 @@ async function loadTrendData() {
 
 async function loadData() {
   updateMetricHeaders();
-  const query = toQuery(readFilters());
-  const trendQuery = toQuery(readFilters(), true);
+  const query = toQuery(readFilters(), true);
+  const trendQuery = query;
   const now = Date.now();
   const cached = responseCache.get(query);
 
   if (cached && now - cached.ts < RESPONSE_CACHE_TTL_MS) {
     const windowData = filterRecordsForWindow(cached.records, selectedWindow);
-    updateCards(windowData.records);
-    updateTrendChart(windowData.records, cached.trend);
-    updateFloorChart(windowData.records, cached.floor);
-    updateFamilyChart(windowData.records, cached.family);
+    currentRecords = windowData.records;
+    if (activeView === "dashboard") {
+      updateCards(windowData.records);
+      updateTrendChart(windowData.records, cached.trend);
+      updateFloorChart(windowData.records, cached.floor);
+      updateFamilyChart(windowData.records, cached.family);
+    } else if (activeView === "analytics") {
+      loadAnalytics();
+    } else if (activeView === "reports") {
+      loadReports();
+    }
     return;
   }
 
@@ -714,10 +778,6 @@ async function loadData() {
       familyRes.json(),
     ]);
 
-    updateTrendChart([], trendPayload);
-    updateFloorChart([], floorPayload);
-    updateFamilyChart([], familyPayload);
-
     const dataRes = await authFetch(`/data?${query}`, { signal: activeLoadController.signal });
     const payload = await dataRes.json();
     const records = (payload.data || []).map((row) => {
@@ -736,15 +796,53 @@ async function loadData() {
     });
 
     const windowData = filterRecordsForWindow(records, selectedWindow);
-    updateCards(windowData.records);
-    updateTrendChart(windowData.records, trendPayload);
-    updateFloorChart(windowData.records, floorPayload);
-    updateFamilyChart(windowData.records, familyPayload);
-  } catch (error) {
-    if (error.name !== "AbortError") {
+    currentRecords = windowData.records;
+
+    if (activeView === "dashboard") {
+      updateCards(windowData.records);
+      updateTrendChart(windowData.records, trendPayload);
+      updateFloorChart(windowData.records, floorPayload);
+      updateFamilyChart(windowData.records, familyPayload);
+    } else if (activeView === "analytics") {
+      loadAnalytics();
+    } else if (activeView === "reports") {
+      loadReports();
+    }
+  } catch (err) {
+    if (err.name !== "AbortError") {
       console.error("Failed to load dashboard data", error);
     }
   }
+}
+
+function wireNavLinks() {
+  document.querySelectorAll(".nav-link").forEach((link) => {
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      activeView = link.dataset.view;
+      document.querySelectorAll(".nav-link").forEach((l) => l.classList.remove("active"));
+      link.classList.add("active");
+      document.querySelectorAll(".view-section").forEach((s) => s.style.display = "none");
+      document.getElementById(`${activeView}View`).style.display = "block";
+      loadData();
+    });
+  });
+}
+
+function loadAnalytics() {
+  console.log("Loading analytics for", currentRecords);
+}
+
+function loadReports() {
+  console.log("Loading reports for", currentRecords);
+}
+
+function exportCsv() {
+  console.log("Exporting CSV");
+}
+
+function exportPdf() {
+  console.log("Exporting PDF");
 }
 
 function wireMetricSwitch() {
@@ -942,14 +1040,142 @@ function applyTheme(theme) {
   const body = document.body;
   if (theme === "light") {
     body.classList.add("light-mode");
-    document.getElementById("modeToggle").textContent = "☀️";
   } else {
     body.classList.remove("light-mode");
-    document.getElementById("modeToggle").textContent = "🌙";
   }
+  
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+  if (floorChart) { floorChart.destroy(); floorChart = null; }
+  if (familyChart) { familyChart.destroy(); familyChart = null; }
+  
+  // Refetch data to redraw charts with correct light/dark color variables
+  loadData();
 }
 
+let predictiveChart = null;
+let activeView = "dashboard";
+
+function wireNavLinks() {
+  document.querySelectorAll(".nav-link").forEach(link => {
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      document.querySelectorAll(".nav-link").forEach(l => l.classList.remove("active"));
+      e.currentTarget.classList.add("active");
+      
+      const vId = e.currentTarget.dataset.section;
+      activeView = vId;
+      document.querySelectorAll(".content-view").forEach(v => v.style.display = "none");
+      document.getElementById(`view-${vId}`).style.display = "block";
+      
+      if (vId === "analytics") loadAnalytics();
+      if (vId === "reports") loadReports();
+    });
+  });
+}
+
+
+function loadReports() {
+  const tbody = document.getElementById("reportsTableBody");
+  const emptyMsg = document.getElementById("reportsEmpty");
+  tbody.innerHTML = "";
+  
+  if (!currentRecords || currentRecords.length === 0) {
+    emptyMsg.style.display = "block";
+    return;
+  }
+  emptyMsg.style.display = "none";
+  
+  // Collect all events from recent 50 records
+  let allEvents = [];
+  for(let rec of currentRecords.slice(0, 50)) {
+     if(rec.meter_events) {
+       for(let ev of rec.meter_events) {
+         allEvents.push({
+            ts: rec.timestamp,
+            loc: `${ev.organization}/${ev.building}/${ev.floor}`,
+            mac: ev.machine,
+            type: ev.meter_type,
+            val: ev.consumption
+         });
+       }
+     }
+  }
+  
+  if (allEvents.length === 0) {
+    emptyMsg.style.display = "block";
+    return;
+  }
+
+  // Display top 100 events
+  allEvents.slice(0, 100).forEach(ev => {
+    let tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${ev.ts.substring(0, 19).replace('T',' ')}</td>
+      <td>${ev.loc}</td>
+      <td>${ev.mac || 'N/A'}</td>
+      <td>${ev.type}</td>
+      <td>${Number(ev.val).toFixed(2)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function buildExportData() {
+  let rows = [["Timestamp", "Location", "Machine", "Meter Type", "Consumption"]];
+  for(let rec of currentRecords) {
+     if(rec.meter_events) {
+       for(let ev of rec.meter_events) {
+         rows.push([
+            rec.timestamp,
+            `${ev.organization}/${ev.building}/${ev.floor}`,
+            ev.machine || 'N/A',
+            ev.meter_type,
+            Number(ev.consumption || 0).toFixed(2)
+         ]);
+       }
+     }
+  }
+  return rows;
+}
+
+document.getElementById("exportCsvBtn").addEventListener("click", () => {
+  const rows = buildExportData();
+  const csvContent = rows.map(r => r.join(",")).join("\n");
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "nci-meter-reports.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+});
+
+document.getElementById("exportPdfBtn").addEventListener("click", () => {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  
+  doc.setFontSize(18);
+  doc.text("NCI Meter Analytics Report", 14, 22);
+  doc.setFontSize(11);
+  doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+  
+  const rows = buildExportData();
+  const heads = [rows[0]];
+  const body = rows.slice(1, Math.min(rows.length, 500)); // Cap to 500 rows for PDF
+  
+  doc.autoTable({
+    startY: 36,
+    headStyles: { fillColor: [15, 23, 42] },
+    head: heads,
+    body: body,
+  });
+  
+  doc.save("nci-meter-reports.pdf");
+});
+
 async function init() {
+  wireNavLinks();
   wireMetricSwitch();
   wireTimeWindowSwitch();
   wireTrendViewSwitch();
